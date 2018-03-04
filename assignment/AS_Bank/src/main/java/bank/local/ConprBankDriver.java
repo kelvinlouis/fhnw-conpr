@@ -40,10 +40,11 @@ public class ConprBankDriver implements bank.BankDriver {
 
 class ConprBank implements Bank {
   private Map<String, ConprAccount> accounts = new ConcurrentHashMap<>();
+  private final Object createLock = new Object();
 
   @Override
   public Set<String> getAccountNumbers() {
-    Set<String> activeAccountNumbers = Collections.synchronizedSet(new HashSet<>());
+    Set<String> activeAccountNumbers = new HashSet<>();
     for (ConprAccount acc : accounts.values()) {
       if (acc.isActive()) {
         activeAccountNumbers.add(acc.getNumber());
@@ -54,9 +55,12 @@ class ConprBank implements Bank {
 
   @Override
   public String createAccount(String owner) {
-    final ConprAccount a = new ConprAccount(owner);
-    accounts.put(a.getNumber(), a);
-    return a.getNumber();
+    synchronized (createLock) {
+      final String id = Integer.toString(accounts.size() + 1);
+      final ConprAccount a = new ConprAccount(owner, id);
+      accounts.put(a.getNumber(), a);
+      return a.getNumber();
+    }
   }
 
   @Override
@@ -74,37 +78,49 @@ class ConprBank implements Bank {
   }
 
   @Override
-  public void transfer(bank.Account from, bank.Account to, double amount)
-      throws IOException, InactiveException, OverdrawException {
+  public void transfer(Account from, Account to, double amount)
+      throws IllegalArgumentException, IOException, InactiveException, OverdrawException {
+    if (from == null || to == null) throw new IllegalArgumentException();
 
-    if (from.isActive() && to.isActive()) {
-      from.withdraw(amount);
-      to.deposit(amount);
+    Account firstLock;
+    Account secondLock;
+
+    // Avoid circular references by establishing order
+    if (from.getNumber().compareTo(to.getNumber()) < 0) {
+      firstLock = from;
+      secondLock = to;
     } else {
-      throw new InactiveException();
+      firstLock = to;
+      secondLock = from;
+    }
+
+    synchronized (firstLock) {
+      synchronized (secondLock) {
+        if (from.isActive() && to.isActive()) {
+          from.withdraw(amount);
+          to.deposit(amount);
+        } else {
+          throw new InactiveException();
+        }
+      }
     }
   }
 }
 
 class ConprAccount implements bank.Account {
-  private static int id = 0;
-
   private String number;
   private String owner;
   private double balance;
   private boolean active = true;
-  private final Object accountLock = new Object();
 
-  ConprAccount(String owner) {
+  ConprAccount(String owner, String id) {
     this.owner = owner;
-    this.number = "CONPR_ACC_" + id++;
+    this.number = "CONPR_ACC_" + id;
   }
 
   @Override
   public double getBalance() {
-    synchronized (accountLock) {
-      return balance;
-    }
+    return balance;
   }
 
   @Override
@@ -119,43 +135,35 @@ class ConprAccount implements bank.Account {
 
   @Override
   public boolean isActive() {
-    synchronized (accountLock) {
-      return active;
-    }
+    return active;
   }
 
-  boolean passivate() {
-    synchronized (accountLock) {
-      if (getBalance() != 0 || !isActive()) {
-        return false;
-      } else {
-        active = false;
-        return true;
-      }
+  synchronized boolean passivate() {
+    if (getBalance() != 0 || !isActive()) {
+      return false;
+    } else {
+      active = false;
+      return true;
     }
   }
 
   @Override
-  public void deposit(double amount) throws InactiveException {
-    synchronized (accountLock) {
-      if (!active)
-        throw new InactiveException("account not active");
-      if (amount < 0)
-        throw new IllegalArgumentException("negative amount");
-      balance += amount;
-    }
+  public synchronized void deposit(double amount) throws InactiveException {
+    if (!active)
+      throw new InactiveException("account not active");
+    if (amount < 0)
+      throw new IllegalArgumentException("negative amount");
+    balance += amount;
   }
 
   @Override
-  public void withdraw(double amount) throws InactiveException, OverdrawException {
-    synchronized (accountLock) {
-      if (!active)
-        throw new InactiveException("account not active");
-      if (amount < 0)
-        throw new IllegalArgumentException("negative amount");
-      if (balance - amount < 0)
-        throw new OverdrawException("account cannot be overdrawn");
-      balance -= amount;
-    }
+  public synchronized void withdraw(double amount) throws InactiveException, OverdrawException {
+    if (!active)
+      throw new InactiveException("account not active");
+    if (amount < 0)
+      throw new IllegalArgumentException("negative amount");
+    if (balance - amount < 0)
+      throw new OverdrawException("account cannot be overdrawn");
+    balance -= amount;
   }
 }
