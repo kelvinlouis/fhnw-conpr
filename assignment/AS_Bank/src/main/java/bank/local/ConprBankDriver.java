@@ -105,10 +105,10 @@ class ConprBank implements Bank {
 }
 
 class ConprAccount implements bank.Account {
-  private String number;
-  private String owner;
-  private double balance;
-  private boolean active = true;
+  private final String number;
+  private final String owner;
+  private volatile double balance;
+  private volatile boolean active = true;
 
   ConprAccount(String owner, String id) {
     this.owner = owner;

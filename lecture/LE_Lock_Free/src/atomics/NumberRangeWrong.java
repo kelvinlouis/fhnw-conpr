@@ -1,44 +1,52 @@
 package atomics;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class NumberRangeWrong {
 
-	// INVARIANT: lower <= upper is NOT GUARANTEED
-	private final AtomicInteger lower = new AtomicInteger(0);
-	private final AtomicInteger upper = new AtomicInteger(0);
-
-	public int getLower() {
-		return lower.get();
-	}
+	private final AtomicReference<NumberRange> range =
+			new AtomicReference<>(new NumberRange(0, 0));
 
 	public void setLower(int i) {
 		while (true) {
-			int l = lower.get();
-			int u = upper.get();
-			if (i > u)
-				throw new IllegalArgumentException();
-			if (lower.compareAndSet(l, i))
+			NumberRange r = range.get();
+			if (range.compareAndSet(r, r.setWithLower(i))) {
 				return;
+			}
 		}
-	}
-
-	public int getUpper() {
-		return upper.get();
 	}
 
 	public void setUpper(int i) {
 		while (true) {
-			int l = lower.get();
-			int u = upper.get();
-			if (i < l)
-				throw new IllegalArgumentException();
-			if (upper.compareAndSet(u, i))
+			NumberRange r = range.get();
+			if (range.compareAndSet(r, r.setWithUpper(i))) {
 				return;
+			}
 		}
 	}
 
 	public boolean contains(int i) {
-		return lower.get() <= i && i <= upper.get();
+		NumberRange r = range.get();
+		return r.lower <= i && i <= r.upper;
+	}
+}
+
+class NumberRange {
+	public final int lower;
+	public final int upper;
+
+	NumberRange(int lower, int upper) {
+		this.lower = lower;
+		this.upper = upper;
+	}
+
+	public NumberRange setWithLower(int l) {
+		if (l > upper) throw new IllegalArgumentException();
+		return new NumberRange(l, upper);
+	}
+
+	public NumberRange setWithUpper(int u) {
+		if (u < lower) throw new IllegalArgumentException();
+		return new NumberRange(lower, u);
 	}
 }
